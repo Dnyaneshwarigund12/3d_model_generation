@@ -158,6 +158,43 @@ def test_marching_cubes_prefers_the_cuda_extension(monkeypatch):
     assert _ensure_marching_cubes() == "torchmcubes (CUDA)"
 
 
+def test_vit_key_remap_matches_transformers5_naming():
+    """The exact mismatch in the Colab step-8 traceback."""
+    from app.generators.triposr import _remap_triposr_vit_keys
+
+    old = {
+        "image_tokenizer.model.encoder.layer.0.attention.attention.query.weight": 1,
+        "image_tokenizer.model.encoder.layer.0.attention.attention.key.bias": 2,
+        "image_tokenizer.model.encoder.layer.0.attention.attention.value.weight": 3,
+        "image_tokenizer.model.encoder.layer.0.attention.output.dense.weight": 4,
+        "image_tokenizer.model.encoder.layer.0.intermediate.dense.weight": 5,
+        "image_tokenizer.model.encoder.layer.0.output.dense.weight": 6,
+        "image_tokenizer.model.encoder.layer.0.layernorm_before.weight": 7,
+        "image_tokenizer.model.embeddings.cls_token": 8,
+        "backbone.some_other_weight": 9,
+    }
+    new = _remap_triposr_vit_keys(old)
+    assert new["image_tokenizer.model.layers.0.attention.q_proj.weight"] == 1
+    assert new["image_tokenizer.model.layers.0.attention.k_proj.bias"] == 2
+    assert new["image_tokenizer.model.layers.0.attention.v_proj.weight"] == 3
+    assert new["image_tokenizer.model.layers.0.attention.o_proj.weight"] == 4
+    assert new["image_tokenizer.model.layers.0.mlp.fc1.weight"] == 5
+    assert new["image_tokenizer.model.layers.0.mlp.fc2.weight"] == 6
+    assert new["image_tokenizer.model.layers.0.layernorm_before.weight"] == 7
+    assert new["image_tokenizer.model.embeddings.cls_token"] == 8
+    assert new["backbone.some_other_weight"] == 9
+    assert "encoder.layer" not in " ".join(new)
+
+
+def test_vit_key_remap_is_a_no_op_on_new_checkpoints():
+    from app.generators.triposr import _remap_triposr_vit_keys
+
+    already = {"image_tokenizer.model.layers.0.attention.q_proj.weight": 1}
+    assert _remap_triposr_vit_keys(already) is already or _remap_triposr_vit_keys(
+        already
+    ) == already
+
+
 @pytest.mark.parametrize("photographed_side_px", [120, 150, 240])
 def test_the_printable_sheet_measures_back_through_the_pipeline(
     tmp_path, photographed_side_px

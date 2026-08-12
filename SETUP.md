@@ -295,6 +295,12 @@ on a T4, so nothing in the normal flow compiles them, and shape generation needs
 marching cubes, and `tools/doctor.py` reports which implementation is in use. Pass
 `--with-torchmcubes` to `colab_setup.py` if you want the faster CUDA one.
 
+**`RuntimeError: Error(s) in loading state_dict for TSR` / Missing `q_proj` /
+Unexpected `encoder.layer`.** TripoSR's weights were saved under transformers 4.35
+ViT names; Colab's Gradio stack installs transformers 5.x, which renamed them. The
+TripoSR adapter remaps the keys on load - pull the latest code (`git pull` in step 2)
+and re-run. Do not pin `transformers==4.35.0`: it conflicts with Gradio 6.
+
 **"Connection errored out. Failed to fetch"** in the Gradio page. This is a Gradio 6 +
 Colab bug in the **embedded notebook preview**, not a failure of this pipeline. The page
 HTML loads inside Colab's iframe, then every upload / Generate call goes to an internal

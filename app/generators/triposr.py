@@ -23,6 +23,91 @@ from ..imaging import composite_on_gray
 _REPO_URL = "https://github.com/VAST-AI-Research/TripoSR"
 
 
+def _remap_triposr_vit_keys(state_dict: dict) -> dict:
+    """Map transformers 4.x ViT keys onto transformers 5.x names.
+
+    TripoSR's published checkpoint and its own requirements pin
+    ``transformers==4.35.0``, where ViT weights live under
+    ``encoder.layer.*.attention.attention.query``. Gradio 6 (and therefore this
+    Colab stack) pulls transformers 5.x, which renamed those to
+    ``layers.*.attention.q_proj``. Without the remap, ``load_state_dict`` fails
+    with a wall of Missing/Unexpected keys - exactly the step-8 traceback.
+
+    We cannot pin transformers 4.35.0: it needs ``huggingface-hub<1``, which
+    Gradio 6 refuses. Remapping the handful of ViT keys is the compatible fix.
+    """
+    # Already on the new naming, or not a TripoSR checkpoint.
+    if not any(
+        key.startswith("image_tokenizer.model.encoder.layer.") for key in state_dict
+    ):
+        return state_dict
+
+    remapped: dict = {}
+    for key, value in state_dict.items():
+        if not key.startswith("image_tokenizer.model."):
+            remapped[key] = value
+            continue
+        rest = key[len("image_tokenizer.model.") :]
+        rest = rest.replace("encoder.layer.", "layers.", 1)
+        rest = rest.replace("attention.attention.query", "attention.q_proj")
+        rest = rest.replace("attention.attention.key", "attention.k_proj")
+        rest = rest.replace("attention.attention.value", "attention.v_proj")
+        # Attention output must be rewritten before the MLP's output.dense.
+        rest = rest.replace("attention.output.dense", "attention.o_proj")
+        rest = rest.replace("intermediate.dense", "mlp.fc1")
+        rest = rest.replace("output.dense", "mlp.fc2")
+        remapped["image_tokenizer.model." + rest] = value
+    return remapped
+
+
+def _load_triposr_checkpoint(model_id: str):
+    """Load TripoSR the way its repo does, plus the transformers-5 key remap."""
+    import os
+
+    import torch
+    from huggingface_hub import hf_hub_download
+    from omegaconf import OmegaConf
+    from tsr.system import TSR
+
+    if os.path.isdir(model_id):
+        config_path = os.path.join(model_id, "config.yaml")
+        weight_path = os.path.join(model_id, "model.ckpt")
+    else:
+        config_path = hf_hub_download(repo_id=model_id, filename="config.yaml")
+        weight_path = hf_hub_download(repo_id=model_id, filename="model.ckpt")
+
+    cfg = OmegaConf.load(config_path)
+    OmegaConf.resolve(cfg)
+    model = TSR(cfg)
+
+    # torch>=2.4 defaults weights_only=True, which rejects OmegaConf pickles in
+    # some side paths; TripoSR's ckpt is a plain state_dict, but be explicit.
+    try:
+        ckpt = torch.load(weight_path, map_location="cpu", weights_only=True)
+    except TypeError:
+        ckpt = torch.load(weight_path, map_location="cpu")
+    except Exception:
+        ckpt = torch.load(weight_path, map_location="cpu", weights_only=False)
+
+    if not isinstance(ckpt, dict):
+        raise GeneratorError(
+            f"TripoSR checkpoint at {weight_path} is not a state dict."
+        )
+
+    ckpt = _remap_triposr_vit_keys(ckpt)
+    try:
+        model.load_state_dict(ckpt, strict=True)
+    except RuntimeError as exc:
+        raise GeneratorError(
+            "TripoSR's weights do not match the installed transformers package. "
+            "This project remaps the ViT keys for transformers 5.x automatically; "
+            "if you still see this, clear the Hugging Face cache and retry, or "
+            "switch the generator to 'hunyuan3d' / 'silhouette'.\n\n"
+            f"Underlying error: {exc}"
+        ) from exc
+    return model
+
+
 def _ensure_marching_cubes() -> str:
     """Make `import torchmcubes` succeed, with a CPU implementation if it cannot.
 
@@ -115,11 +200,16 @@ class TripoSRGenerator:
             ) from exc
 
         device = self.settings.resolve_device()
-        model = TSR.from_pretrained(
-            self.settings.triposr_model,
-            config_name="config.yaml",
-            weight_name="model.ckpt",
-        )
+        try:
+            model = _load_triposr_checkpoint(self.settings.triposr_model)
+        except GeneratorError:
+            raise
+        except Exception as exc:
+            raise GeneratorError(
+                f"Failed to load TripoSR ({type(exc).__name__}: {exc}). "
+                "Check the network / Hugging Face cache, or switch generator to "
+                "'silhouette' to confirm the rest of the pipeline."
+            ) from exc
         # Bounds the renderer's memory use; the value comes from TripoSR's own
         # reference script.
         model.renderer.set_chunk_size(8192)
