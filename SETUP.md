@@ -196,6 +196,20 @@ Adding a generation backend means one file in `app/generators/` and one line in
 `_BACKENDS` in `generators/base.py`. Nothing downstream knows which model produced the
 mesh: scale is solved independently and applied afterwards.
 
+## When Colab breaks
+
+**`rembg` fails to import, or an ImportError comes from inside numpy itself** (for example
+`cannot import name '_center' from 'numpy._core.umath'`). A model install in step 5, 6 or 7
+satisfied a transitive pin by downgrading numpy, which leaves numpy's Python files and its
+compiled extension on different versions. Colab's scipy, opencv and rembg are all built
+against the numpy it ships with, so they break together, and rembg goes first because it
+imports scipy. Run step 8b to reinstall numpy, then restart the runtime — reinstalling alone
+is not enough, because the kernel has the broken one loaded. The install cells carry a
+`numpy>=2.3,<3` floor to prevent it, and each prints numpy's on-disk version afterwards.
+
+Read the on-disk version, not `numpy.__version__`: an already-imported module keeps
+reporting the version it had when it was first imported, which is how a downgrade hides.
+
 ## Known limitations
 
 - **Depth is a guess.** Only the two dimensions facing the camera are pinned by the
