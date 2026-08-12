@@ -110,9 +110,22 @@ def test_the_tools_the_notebook_runs_exist(notebook):
         "tools/doctor.py",
         "tools/make_marker.py",
         "tools/validate.py",
+        "tools/colab_launch.py",
     ):
-        assert relative in body, f"notebook no longer mentions {relative}"
+        assert relative in body or relative.split("/")[-1].replace(".py", "") in body, (
+            f"notebook no longer mentions {relative}"
+        )
         assert (root / relative).exists()
+
+
+def test_step_7_uses_the_colab_safe_launcher(notebook):
+    """The old build_ui().launch() path embeds in Colab's broken Gradio iframe."""
+    source = "".join(notebook["cells"][13]["source"])
+    assert "from tools.colab_launch import launch" in source
+    assert "launch(generator=" in source
+    assert "build_ui(" not in source
+    assert "demo.launch" not in source
+    assert "queue().launch" not in source
 
 
 def run_setup_cell(notebook, **config) -> None:

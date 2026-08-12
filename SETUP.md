@@ -249,6 +249,7 @@ tools/
   doctor.py          verify libraries and the whole pipeline, in a fresh process
   make_marker.py     printable marker at an exact size
   validate.py        measured error against tape-measured truth
+  colab_launch.py    Colab-safe Gradio launch (no broken iframe)
 notebooks/
   colab_photo_to_3d.ipynb
 ```
@@ -294,11 +295,20 @@ on a T4, so nothing in the normal flow compiles them, and shape generation needs
 marching cubes, and `tools/doctor.py` reports which implementation is in use. Pass
 `--with-torchmcubes` to `colab_setup.py` if you want the faster CUDA one.
 
-**"Connection errored out. Failed to fetch"** in the Gradio page. Not a pipeline bug — the
-browser still has the page open, but the Python process behind it is gone (cell stopped,
-share tunnel dropped, or runtime disconnected). Re-run step 7, wait for a fresh
-`*.gradio.live` link, and open that one. Prefer the public link over Colab's embedded
-preview. Leave the cell running for the whole session, including the first weight download.
+**"Connection errored out. Failed to fetch"** in the Gradio page. This is a Gradio 6 +
+Colab bug in the **embedded notebook preview**, not a failure of this pipeline. The page
+HTML loads inside Colab's iframe, then every upload / Generate call goes to an internal
+hostname the browser cannot reach.
+
+Fix: re-run step 2 (so `git pull` picks up `tools/colab_launch.py`), then step 7. The
+launcher turns the iframe off (`inline=False`) and prints working URLs:
+
+1. Colab's own port-forward link
+2. a `*.gradio.live` share link (after ensuring the tunnel binary is present)
+3. a Cloudflare tunnel, if Gradio share still fails
+
+Open **one of those printed URLs in a new browser tab**. Do not use the preview inside
+the notebook. Leave the cell running.
 
 **"Could not establish scale from this photo."** Not a bug — the app refusing to guess. One
 photo carries no absolute scale, so it needs something of known size. Quickest route to a
