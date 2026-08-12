@@ -96,14 +96,39 @@ class Segmentation:
         return crop
 
 
-def _get_session(model_name: str):
-    if model_name not in _SESSIONS:
+def _import_rembg():
+    """Import rembg, distinguishing "missing" from "present but broken".
+
+    rembg pulls in pymatting/numba/cv2, and a version clash in any of those also
+    surfaces as ImportError. Reporting "not installed" for every failure sends
+    people to reinstall a package pip already considers satisfied.
+    """
+    try:
+        from rembg import new_session, remove
+    except Exception as exc:  # pragma: no cover - depends on environment
+        import importlib.util
+
         try:
-            from rembg import new_session
-        except ImportError as exc:  # pragma: no cover - depends on environment
+            installed = importlib.util.find_spec("rembg") is not None
+        except Exception:
+            installed = True
+        if not installed:
             raise SegmentationError(
                 "rembg is not installed. Run: pip install rembg onnxruntime"
             ) from exc
+        raise SegmentationError(
+            "rembg is installed but failed to import - this is a dependency "
+            f"version clash, not a missing package: {type(exc).__name__}: {exc}. "
+            "If a pip install ran after this kernel started (Colab steps 4-6), "
+            "restart the runtime and run the cells again; the installs will be "
+            "no-ops the second time."
+        ) from exc
+    return new_session, remove
+
+
+def _get_session(model_name: str):
+    if model_name not in _SESSIONS:
+        new_session, _ = _import_rembg()
         _SESSIONS[model_name] = new_session(model_name)
     return _SESSIONS[model_name]
 
@@ -158,7 +183,7 @@ def remove_background(
     from PIL import Image
 
     session = _get_session(settings.rembg_model)
-    from rembg import remove
+    _, remove = _import_rembg()
 
     cutout = remove(Image.fromarray(rgb), session=session)
     rgba = np.asarray(cutout.convert("RGBA"), dtype=np.uint8)
