@@ -88,6 +88,21 @@ def _dimension_rows(measurements: dict) -> list[list[str]]:
     return rows
 
 
+def _failure_notice(title: str, message: str) -> str:
+    return f"### {title}\n\n{message}"
+
+
+def _empty_outputs(notice: str, raw: dict):
+    """Clear every output box and put the explanation in the badge.
+
+    Raising `gr.Error` makes Gradio paint every component red with a generic
+    "Error" badge and hides the real message - that is what the screenshots of
+    empty red boxes are. Returning None/[] instead leaves the page usable and
+    puts the actual cause where the user is looking.
+    """
+    return None, notice, [], None, None, [], raw
+
+
 def process_upload(
     image,
     scale_source: str,
@@ -104,10 +119,11 @@ def process_upload(
     Returns, in order: model path, tier badge, dimension rows, measurements file,
     mesh file, debug gallery, raw result.
     """
-    import gradio as gr
-
     if image is None:
-        raise gr.Error("Upload a photo first.")
+        return _empty_outputs(
+            _failure_notice("No photo", "Upload a photo first, then press Generate."),
+            {"error": "no_photo"},
+        )
     try:
         result = run_or_raise(
             image,
@@ -120,20 +136,27 @@ def process_upload(
             known_axis=known_axis,
         )
     except ScaleError as exc:
-        # A refusal, not a fault: the photo contains nothing of known size. Returned
-        # rather than raised, because raising makes Gradio paint every output box
-        # red, which reads as a crash when it is really a question for the user.
-        return (
-            None,
+        # A refusal, not a fault: the photo contains nothing of known size.
+        return _empty_outputs(
             _no_scale_notice(str(exc)),
-            [],
-            None,
-            None,
-            [],
             {"needs_size_reference": str(exc)},
         )
     except PipelineError as exc:
-        raise gr.Error(str(exc)) from exc
+        return _empty_outputs(
+            _failure_notice(f"Stopped: {type(exc).__name__}", str(exc)),
+            {"pipeline_error": type(exc).__name__, "message": str(exc)},
+        )
+    except Exception as exc:  # pragma: no cover - last resort for unexpected faults
+        return _empty_outputs(
+            _failure_notice(
+                "Unexpected failure",
+                f"{type(exc).__name__}: {exc}\n\n"
+                "Re-run step 5 (`python tools/doctor.py`) in the notebook. "
+                "If that passes, try generator `silhouette` with "
+                "'I know one dimension already' to confirm the UI path.",
+            ),
+            {"unexpected_error": type(exc).__name__, "message": str(exc)},
+        )
 
     gallery = [
         (str(path), name.replace("_", " "))

@@ -63,9 +63,13 @@ def test_process_returns_every_output_the_page_expects(scene, settings):
     assert raw["length_mm"] == pytest.approx(200.0, rel=0.03)
 
 
-def test_missing_image_is_a_friendly_error(settings):
-    with pytest.raises(gr.Error):
-        process_upload(None, "auto", 50.0, "DICT_4X4_50", None, "height", "silhouette", settings)
+def test_missing_image_asks_instead_of_erroring(settings):
+    model_path, notice, rows, json_file, glb_file, gallery, raw = process_upload(
+        None, "auto", 50.0, "DICT_4X4_50", None, "height", "silhouette", settings
+    )
+    assert model_path is None
+    assert "Upload a photo" in notice
+    assert raw["error"] == "no_photo"
 
 
 def test_a_photo_with_no_size_reference_asks_instead_of_erroring(settings):
@@ -84,6 +88,30 @@ def test_a_photo_with_no_size_reference_asks_instead_of_erroring(settings):
     assert "size reference" in notice.lower()
     assert "I know one dimension already" in notice
     assert "needs_size_reference" in raw
+
+
+def test_pipeline_failures_show_the_message_instead_of_red_boxes(settings, monkeypatch):
+    """Raising gr.Error paints every output red and hides the cause."""
+    import numpy as np
+
+    from app.errors import GeneratorError
+
+    def boom(*args, **kwargs):
+        raise GeneratorError(
+            "TripoSR is not available in this runtime. Switch generator to silhouette."
+        )
+
+    monkeypatch.setattr("app.ui.run_or_raise", boom)
+    photo = np.full((200, 200, 3), 200, dtype=np.uint8)
+
+    model_path, notice, rows, json_file, glb_file, gallery, raw = process_upload(
+        photo, "manual", 50.0, "DICT_4X4_50", 75.0, "width", "triposr", settings
+    )
+
+    assert model_path is None and json_file is None and glb_file is None
+    assert "TripoSR is not available" in notice
+    assert "GeneratorError" in notice
+    assert raw["pipeline_error"] == "GeneratorError"
 
 
 def test_badge_distinguishes_measured_from_estimated():
