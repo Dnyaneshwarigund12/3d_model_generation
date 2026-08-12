@@ -1,0 +1,13 @@
+image,truth_length_mm,truth_width_mm,truth_height_mm,scale_source,marker_mm,known_mm,known_axis,notes
+photos/shoebox.jpg,330,200,120,marker,50,,,easy: matte cardboard box on a plain floor
+photos/mug.jpg,120,95,95,marker,50,,,handle is a thin structure
+photos/book.jpg,240,160,25,marker,50,,,flat object, tests the depth guess
+photos/kettle.jpg,220,160,250,marker,50,,,reflective stainless steel
+photos/plant_pot.jpg,180,180,160,marker,50,,,round, no sharp edges
+photos/remote.jpg,165,45,22,marker,50,,,small and dark
+photos/chair.jpg,450,450,900,card,,,,large object, card is far from its plane
+photos/backpack.jpg,480,320,180,marker,80,,,soft, changes shape
+photos/bottle.jpg,70,70,240,marker,50,,,transparent
+photos/laptop.jpg,320,220,18,marker,50,,,very thin
+photos/toy_car.jpg,95,42,32,marker,25,,,small, use a smaller marker
+photos/cushion.jpg,450,450,140,,,450,width,no marker: known width instead

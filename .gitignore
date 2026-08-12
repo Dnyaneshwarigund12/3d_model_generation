@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Pipeline runs and downloaded model repos/weights
+outputs/
+third_party/
+*.glb
+*.ckpt
+*.safetensors
+
+# Printable marker assets are generated on demand
+assets/markers/

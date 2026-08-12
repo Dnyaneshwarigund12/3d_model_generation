@@ -1,0 +1,19 @@
+# Core pipeline dependencies (CPU-safe, no CUDA needed).
+# The GPU-side model repos are installed separately - see requirements-colab.txt
+# and notebooks/colab_photo_to_3d.ipynb.
+
+numpy>=1.24,<3
+opencv-python>=4.8
+pillow>=10.0
+trimesh>=4.0
+scipy>=1.10
+
+# Background removal (runs on CPU via onnxruntime)
+rembg>=2.0.50
+onnxruntime>=1.16
+
+# Web UI
+gradio>=4.44
+
+# Tests
+pytest>=8.0
