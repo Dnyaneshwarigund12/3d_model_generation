@@ -294,6 +294,12 @@ on a T4, so nothing in the normal flow compiles them, and shape generation needs
 marching cubes, and `tools/doctor.py` reports which implementation is in use. Pass
 `--with-torchmcubes` to `colab_setup.py` if you want the faster CUDA one.
 
+**"Connection errored out. Failed to fetch"** in the Gradio page. Not a pipeline bug — the
+browser still has the page open, but the Python process behind it is gone (cell stopped,
+share tunnel dropped, or runtime disconnected). Re-run step 7, wait for a fresh
+`*.gradio.live` link, and open that one. Prefer the public link over Colab's embedded
+preview. Leave the cell running for the whole session, including the first weight download.
+
 **"Could not establish scale from this photo."** Not a bug — the app refusing to guess. One
 photo carries no absolute scale, so it needs something of known size. Quickest route to a
 number: choose **"I know one dimension already"** and type a measurement, which works on any
