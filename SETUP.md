@@ -272,8 +272,15 @@ on a T4, so nothing in the normal flow compiles them, and shape generation needs
 marching cubes, and `tools/doctor.py` reports which implementation is in use. Pass
 `--with-torchmcubes` to `colab_setup.py` if you want the faster CUDA one.
 
-**UniDepth fails to import.** It only powers the `estimate` scale source, which is a
-wide-error-bar guess. Use a marker or a card instead; it is several times more accurate.
+**"Could not establish scale from this photo."** Not a bug — the app refusing to guess. One
+photo carries no absolute scale, so it needs something of known size. Quickest route to a
+number: choose **"I know one dimension already"** and type a measurement, which works on any
+photo you have already taken. Best accuracy: print the marker from step 6 and re-shoot.
+
+**UniDepth is not installed.** It only powers the `estimate` scale source, which is a
+wide-error-bar guess. Install it with `python tools/colab_setup.py --with-unidepth`, inside
+the constrained transaction so its dependencies cannot move Pillow. A marker costs one sheet
+of paper and is several times more accurate.
 
 ## Known limitations
 

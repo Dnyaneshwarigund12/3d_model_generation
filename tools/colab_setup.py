@@ -86,6 +86,8 @@ BACKEND_PACKAGES = {
     ),
 }
 
+UNIDEPTH_URL = "git+https://github.com/lpiccinelli-eth/UniDepth.git"
+
 REPOS = {
     "triposr": ("https://github.com/VAST-AI-Research/TripoSR", "TripoSR", "tsr"),
     "hunyuan3d": (
@@ -172,6 +174,13 @@ def main() -> int:
         help="Compile TripoSR's CUDA marching cubes. Optional: the adapter falls "
         "back to a CPU implementation, so this only buys speed.",
     )
+    parser.add_argument(
+        "--with-unidepth",
+        action="store_true",
+        help="Install UniDepth for the 'estimate' scale source, which measures a "
+        "photo with no reference object in it. Wide error bars (20%%+); a printed "
+        "marker costs one sheet of paper and is several times more accurate.",
+    )
     parser.add_argument("--verbose", action="store_true", help="Show all pip output.")
     args = parser.parse_args()
 
@@ -190,6 +199,10 @@ def main() -> int:
     packages = list(CORE)
     for backend in backends:
         packages += [p for p in BACKEND_PACKAGES[backend] if p not in packages]
+    if args.with_unidepth:
+        # In the same transaction deliberately: UniDepth's dependencies are the ones
+        # most likely to move Pillow, and the constraints file is what stops them.
+        packages += [p for p in ("timm", UNIDEPTH_URL) if p not in packages]
 
     print("\n" + "=" * 72)
     print(f"Installing {len(packages)} packages in one transaction")

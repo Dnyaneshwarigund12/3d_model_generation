@@ -61,9 +61,10 @@ def _load_unidepth(device: str):
     except ImportError as exc:
         raise ScaleError(
             "UniDepth is not installed, so a photo with no reference object "
-            "cannot be measured. Add a printed marker or a bank card to the "
-            "photo, or enter a known dimension. (The Colab notebook has an "
-            "optional cell that installs UniDepth.)"
+            "cannot be measured. Fastest fix: pick 'I know one dimension "
+            "already' and type a measurement, which works on any photo. Better: "
+            "put a printed marker or a bank card in the shot. To install "
+            "UniDepth instead, run: python tools/colab_setup.py --with-unidepth"
         ) from exc
 
     model = UniDepthV2.from_pretrained(_UNIDEPTH_CHECKPOINT)

@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 
 from .config import DEFAULT_ARUCO_DICT, DEFAULT_MARKER_MM, Settings
-from .errors import PipelineError
+from .errors import PipelineError, ScaleError
 from .generators import available as available_generators
 from .pipeline import run_or_raise
 from .scale import TIER_LABELS
@@ -69,6 +69,10 @@ def _tier_badge(tier: str, error_pct: float, warnings: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _no_scale_notice(message: str) -> str:
+    return f"### Needs a size reference\n\n{message}"
+
+
 def _dimension_rows(measurements: dict) -> list[list[str]]:
     m = measurements
     rows = [
@@ -114,6 +118,19 @@ def process_upload(
             aruco_dict=aruco_dict or DEFAULT_ARUCO_DICT,
             known_mm=float(known_mm) if known_mm else None,
             known_axis=known_axis,
+        )
+    except ScaleError as exc:
+        # A refusal, not a fault: the photo contains nothing of known size. Returned
+        # rather than raised, because raising makes Gradio paint every output box
+        # red, which reads as a crash when it is really a question for the user.
+        return (
+            None,
+            _no_scale_notice(str(exc)),
+            [],
+            None,
+            None,
+            [],
+            {"needs_size_reference": str(exc)},
         )
     except PipelineError as exc:
         raise gr.Error(str(exc)) from exc

@@ -530,6 +530,16 @@ def resolve_scale(
         except Exception as exc:  # a backend that is not installed
             attempts.append(f"{type(exc).__name__}: {exc}")
     raise ScaleError(
-        "Could not establish scale from this photo. Tried:\n- "
-        + "\n- ".join(attempts)
+        "There is nothing of known size in this photo, so its real dimensions "
+        "cannot be measured. A single photo carries no absolute scale: a toy car "
+        "close up and a real car far away make identical pixels.\n"
+        "\n"
+        "**Quickest fix:** type a millimetre value into *Known dimension (mm)* - "
+        "the box is already on screen in Auto mode - or pick *I know one dimension "
+        "already*, then press Generate again. Works on any photo you already have.\n"
+        "\n"
+        "**Most accurate:** lay a printed marker or a bank card flat beside the "
+        "object, in roughly the same plane, and take the photo again.\n"
+        "\n"
+        "Tried: " + "; ".join(attempts)
     )

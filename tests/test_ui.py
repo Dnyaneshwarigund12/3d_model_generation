@@ -68,6 +68,24 @@ def test_missing_image_is_a_friendly_error(settings):
         process_upload(None, "auto", 50.0, "DICT_4X4_50", None, "height", "silhouette", settings)
 
 
+def test_a_photo_with_no_size_reference_asks_instead_of_erroring(settings):
+    """The commonest first upload. It is a question for the user, not a fault."""
+    import numpy as np
+
+    photo = np.full((400, 600, 3), 245, dtype=np.uint8)
+    photo[120:300, 200:420] = (200, 40, 40)  # a plain shape, no reference object
+
+    model_path, notice, rows, json_file, glb_file, gallery, raw = process_upload(
+        photo, "auto", 50.0, "DICT_4X4_50", None, "height", "silhouette", settings
+    )
+
+    assert model_path is None and json_file is None and glb_file is None
+    assert rows == [] and gallery == []
+    assert "size reference" in notice.lower()
+    assert "I know one dimension already" in notice
+    assert "needs_size_reference" in raw
+
+
 def test_badge_distinguishes_measured_from_estimated():
     measured = _tier_badge("reference_marker", 4.0, [])
     estimated = _tier_badge("monocular_estimate", 20.0, ["add a marker"])

@@ -182,6 +182,13 @@ def check_triposr():
     return f"imports cleanly, marching cubes from {source}"
 
 
+def check_unidepth():
+    """Only needed for the 'estimate' scale source; a marker beats it comfortably."""
+    from unidepth.models import UniDepthV2  # noqa: F401
+
+    return "available, so the 'estimate' scale source works"
+
+
 def check_hunyuan3d():
     from app.config import Settings
 
@@ -218,6 +225,7 @@ def main() -> int:
     doctor.check("torch sees a GPU", check_torch_cuda, required=False)
     doctor.check("triposr backend", check_triposr, required=False)
     doctor.check("hunyuan3d backend", check_hunyuan3d, required=False)
+    doctor.check("unidepth (no-marker scale)", check_unidepth, required=False)
 
     print()
     if doctor.failed:
