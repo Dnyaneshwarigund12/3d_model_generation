@@ -87,12 +87,23 @@ python -m pytest tests -q
 python -m app.ui --generator silhouette
 ```
 
-78 tests, no GPU and no model weights required. They pass on both OpenCV 4.6 with
+81 tests, no GPU and no model weights required. They pass on both OpenCV 4.6 with
 numpy 1.26 and OpenCV 5.0 with numpy 2.4; ArUco's API changed at OpenCV 4.7 and
 `app/scale.py` handles both spellings.
 
 `python tools/doctor.py` works locally too, and is the fastest way to see whether an
 environment is sound: it reports the GPU and both generation backends as optional.
+
+Both backends can be verified locally without a GPU: install CPU torch
+(`pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`), run
+`python tools/colab_setup.py`, and the doctor then reports whether each one *imports*,
+which is where they usually fail. Generating a mesh still needs CUDA.
+
+**On Windows**, cloning Hunyuan3D prints `error: unable to create file ... Filename too
+long` for two files under `hy3dshape/tools/mini_trainset/`. Their paths exceed the
+260-character limit Windows enforces by default. Nothing here reads them, the packages
+themselves arrive intact, and `colab_setup.py` says so rather than treating it as fatal.
+Colab is Linux and never hits this.
 
 ---
 
@@ -177,7 +188,7 @@ Two things the output is deliberately explicit about:
 
 ## Accuracy: what is checked and what is not
 
-**Checked**, by the test suite (78 tests, all on CPU):
+**Checked**, by the test suite (81 tests, all on CPU):
 
 - Marker detection recovers a known millimetres-per-pixel ratio to within 1% on
   synthetic images, and the generated printable marker round-trips to within 0.1% of its

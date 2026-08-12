@@ -151,8 +151,27 @@ def clone(url: str, destination: Path, marker: str) -> str:
     if (destination / marker).is_dir():
         return "already present"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "clone", "-q", url, str(destination)], check=True)
-    return "cloned"
+    # Shallow: nothing here reads the history, and Hunyuan3D's is large.
+    result = subprocess.run(
+        ["git", "clone", "--depth", "1", url, str(destination)],
+        capture_output=True,
+        text=True,
+    )
+    if (destination / marker).is_dir():
+        if result.returncode == 0:
+            return "cloned"
+        # Hunyuan3D ships training-data files whose paths exceed the 260-character
+        # limit Windows enforces by default, so checkout reports failure after
+        # writing everything else. The package itself is here and nothing in this
+        # project reads those files.
+        return "cloned, some files could not be written (see git output above)"
+
+    raise RuntimeError(
+        f"git clone failed for {url}\n\n"
+        f"{(result.stderr or result.stdout).strip()[-1200:]}\n\n"
+        f"Remove {destination} before trying again: a partial clone is not "
+        "retried, it is skipped."
+    )
 
 
 def main() -> int:
@@ -240,7 +259,11 @@ def main() -> int:
         print("=" * 72)
         for backend in backends:
             url, folder, marker = REPOS[backend]
-            state = clone(url, PROJECT_ROOT / "third_party" / folder, marker)
+            try:
+                state = clone(url, PROJECT_ROOT / "third_party" / folder, marker)
+            except RuntimeError as exc:
+                print(f"  {backend:12} FAILED\n\n{exc}")
+                return 1
             print(f"  {backend:12} {state}")
 
     print("\n" + "=" * 72)

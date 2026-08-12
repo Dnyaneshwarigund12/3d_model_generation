@@ -60,6 +60,54 @@ def test_backend_choices_cover_the_repos():
     assert set(colab_setup.REPOS) == set(colab_setup.BACKEND_PACKAGES)
 
 
+def fake_clone(monkeypatch, returncode: int, *, writes: Path | None = None):
+    """Stand in for git, optionally creating what a real clone would have."""
+
+    def run(command, **kwargs):
+        if writes is not None:
+            writes.mkdir(parents=True, exist_ok=True)
+        assert "--depth" in command, "the history is never read; clone shallow"
+        return types.SimpleNamespace(
+            returncode=returncode, stdout="", stderr="error: Filename too long"
+        )
+
+    monkeypatch.setattr(colab_setup.subprocess, "run", run)
+
+
+def test_clone_skips_a_repo_that_is_already_there(tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("git was called for a repo already present")
+
+    monkeypatch.setattr(colab_setup.subprocess, "run", refuse)
+    (tmp_path / "repo" / "tsr").mkdir(parents=True)
+
+    assert colab_setup.clone("url", tmp_path / "repo", "tsr") == "already present"
+
+
+def test_clone_accepts_a_checkout_that_skipped_files(tmp_path, monkeypatch):
+    """Hunyuan3D ships paths longer than Windows allows; the package still arrives."""
+    destination = tmp_path / "repo"
+    fake_clone(monkeypatch, 128, writes=destination / "hy3dshape")
+
+    state = colab_setup.clone("url", destination, "hy3dshape")
+
+    assert "cloned" in state and "could not be written" in state
+
+
+def test_clone_failure_explains_itself_instead_of_raising_a_traceback(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "repo"
+    fake_clone(monkeypatch, 128)  # nothing written: a genuine failure
+
+    with pytest.raises(RuntimeError) as failure:
+        colab_setup.clone("https://example.invalid/repo", destination, "hy3dshape")
+
+    message = str(failure.value)
+    assert "Filename too long" in message  # git's own words, not a summary
+    assert str(destination) in message  # and what to delete before retrying
+
+
 def test_pymeshlab_is_installed_for_hunyuan():
     """hy3dshape imports it, and its absence is not obvious from the traceback."""
     assert "pymeshlab" in colab_setup.BACKEND_PACKAGES["hunyuan3d"]
