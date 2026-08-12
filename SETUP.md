@@ -198,17 +198,39 @@ mesh: scale is solved independently and applied afterwards.
 
 ## When Colab breaks
 
-**`rembg` fails to import, or an ImportError comes from inside numpy itself** (for example
-`cannot import name '_center' from 'numpy._core.umath'`). A model install in step 5, 6 or 7
-satisfied a transitive pin by downgrading numpy, which leaves numpy's Python files and its
-compiled extension on different versions. Colab's scipy, opencv and rembg are all built
-against the numpy it ships with, so they break together, and rembg goes first because it
-imports scipy. Run step 8b to reinstall numpy, then restart the runtime — reinstalling alone
-is not enough, because the kernel has the broken one loaded. The install cells carry a
-`numpy>=2.3,<3` floor to prevent it, and each prints numpy's on-disk version afterwards.
+**An ImportError comes from inside numpy or Pillow itself** — say `cannot import name
+'_center' from 'numpy._core.umath'`, or `cannot import name '_Ink' from 'PIL._typing'`. A
+model install in step 5, 6 or 7 satisfied a pin of its own by downgrading the package, and
+the downgrade was applied only partly, leaving Python files and compiled extensions on
+different versions. Colab's scipy, opencv, torch and rembg are all built against the numpy
+and Pillow it ships with, so they break together; `rembg` usually reports it first, because
+it imports scipy. Run step 8b, then restart the runtime — the restart is not optional,
+because the kernel is holding the broken copy.
 
-Read the on-disk version, not `numpy.__version__`: an already-imported module keeps
-reporting the version it had when it was first imported, which is how a downgrade hides.
+Two traps make this look unfixable:
+
+- **Reinstalling over the tree may not fix it.** pip records the new version and can leave
+  stale files behind, so the metadata reports one version while the files are another. Step
+  8b deletes the package directory, its `*.dist-info` and its `.libs` before reinstalling.
+- **No version string in the running kernel can be trusted.** `__version__` reflects what
+  was imported first, and `importlib.metadata.version` reads metadata that may not match the
+  files. Step 8b imports the package in a separate process instead, which is the only
+  reading that reflects the disk.
+
+The install cells carry `numpy>=2.3,<3` and `pillow>=12.1,<13` floors to stop the downgrade
+happening, and print both versions afterwards so you can see which step moved them.
+
+**Hunyuan3D: `No module named 'pymeshlab'`.** `hy3dshape` imports it and the repo does not
+declare it in a way the notebook's install picks up. Step 6 installs it explicitly.
+
+**Hunyuan3D: `compile_mesh_painter.sh: line 1: python3-config: command not found`.** That
+script builds a *texture* pipeline extension, and the texture pass wants ~21 GB of VRAM, so
+it stays off on a T4. Step 6 skips both texture extensions unless you set `TEXTURE = True`,
+in which case it installs `python3-dev` first to provide `python3-config`. Shape generation —
+the mesh you measure — needs neither.
+
+**UniDepth fails to import.** It is only needed for the `estimate` scale source, which is a
+wide-error-bar guess anyway. Skip step 7 and use a marker or a card.
 
 ## Known limitations
 
