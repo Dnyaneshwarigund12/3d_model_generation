@@ -87,7 +87,7 @@ python -m pytest tests -q
 python -m app.ui --generator silhouette
 ```
 
-68 tests, no GPU and no model weights required. They pass on both OpenCV 4.6 with
+78 tests, no GPU and no model weights required. They pass on both OpenCV 4.6 with
 numpy 1.26 and OpenCV 5.0 with numpy 2.4; ArUco's API changed at OpenCV 4.7 and
 `app/scale.py` handles both spellings.
 
@@ -147,14 +147,17 @@ Each run writes `outputs/<run_id>/`:
 
 ```json
 {
-  "length_mm": 202.4,
-  "width_mm": 101.2,
-  "height_mm": 41.1,
-  "volume_cm3": 842.5,
+  "length_mm": 133.4,
+  "width_mm": 50.0,
+  "height_mm": 20.8,
+  "volume_cm3": 139.1,
+  "surface_area_cm2": 209.9,
   "watertight": true,
   "volume_basis": "mesh",
   "measurement_tier": "reference_marker",
-  "estimated_error_pct": 5.0
+  "estimated_error_pct": 4.0,
+  "obb_extents_mm": [133.4, 50.0, 20.8],
+  "detail": { "scale": "...", "scale_solution": "...", "inferred_depth_mm": 20.8 }
 }
 ```
 
@@ -174,11 +177,19 @@ Two things the output is deliberately explicit about:
 
 ## Accuracy: what is checked and what is not
 
-**Checked**, by the test suite (54 tests, all on CPU):
+**Checked**, by the test suite (78 tests, all on CPU):
 
 - Marker detection recovers a known millimetres-per-pixel ratio to within 1% on
   synthetic images, and the generated printable marker round-trips to within 0.1% of its
   requested size.
+- The **printable sheet itself**, ruler ticks and caption included, photographed at 120,
+  150 and 240 px across, measures a known object back to within 0.2%. This is a separate
+  test from the one above because the bias it guards against — black marks close enough
+  to the marker that the detector traces them as part of it — cannot appear in a scene
+  built from a bare ArUco square.
+- The notebook's cells parse, call this project's functions with arguments they accept,
+  and — for the session-setup cell, which step 4 tells you to re-run — do not delete the
+  model repositories the install step cloned.
 - A marker tilted away from the camera by up to 55% foreshortening still measures within
   2%. This one needed work: averaging the marker's four edges, the obvious approach, gave
   up to **20% error** on a tilted marker, because perspective can only ever shorten an

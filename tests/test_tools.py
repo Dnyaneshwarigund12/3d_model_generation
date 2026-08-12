@@ -108,3 +108,63 @@ def test_marching_cubes_prefers_the_cuda_extension(monkeypatch):
     from app.generators.triposr import _ensure_marching_cubes
 
     assert _ensure_marching_cubes() == "torchmcubes (CUDA)"
+
+
+@pytest.mark.parametrize("photographed_side_px", [120, 150, 240])
+def test_the_printable_sheet_measures_back_through_the_pipeline(
+    tmp_path, photographed_side_px
+):
+    """The whole chain, on the real printable asset rather than a bare marker.
+
+    The sheet carries ruler ticks and a caption. When those sat too close to the
+    marker the detector traced them as part of it, and every measurement came out 3%
+    large - a bias invisible to any test that pastes a bare ArUco square.
+    """
+    from PIL import Image
+
+    from app.config import Settings
+    from app.pipeline import run
+    from app.segment import segmentation_from_mask
+    from tools.make_marker import MM_PER_INCH, render_marker
+
+    object_px = (300, 150)
+    marker_mm = 50.0
+
+    # The sheet as printed, then shrunk to the size it would occupy in a photograph.
+    sheet = render_marker(marker_mm)
+    factor = photographed_side_px / (marker_mm / MM_PER_INCH * 300)
+    patch = np.asarray(
+        sheet.resize(
+            (round(sheet.width * factor), round(sheet.height * factor)), Image.LANCZOS
+        ).convert("RGB"),
+        dtype=np.uint8,
+    )
+
+    # Canvas sized to hold the whole sheet: a cropped marker is not detectable, which
+    # would make this pass or fail for the wrong reason.
+    left = 60 + object_px[0] + 40
+    height = max(80 + object_px[1] + 40, 40 + patch.shape[0] + 40)
+    image = np.full((height, left + patch.shape[1] + 40, 3), 232, dtype=np.uint8)
+    mask = np.zeros(image.shape[:2], dtype=bool)
+    mask[80 : 80 + object_px[1], 60 : 60 + object_px[0]] = True
+    image[mask] = (60, 110, 180)
+    image[40 : 40 + patch.shape[0], left : left + patch.shape[1]] = patch
+
+    settings = Settings()
+    settings.generator = "silhouette"
+    settings.output_dir = tmp_path / "outputs"
+    result = run(
+        image,
+        settings=settings,
+        scale_source="marker",
+        marker_mm=marker_mm,
+        segmentation=segmentation_from_mask(image, mask),
+    )
+
+    mm_per_px = marker_mm / photographed_side_px
+    assert result.measurements["length_mm"] == pytest.approx(
+        object_px[0] * mm_per_px, rel=0.03
+    )
+    assert result.measurements["width_mm"] == pytest.approx(
+        object_px[1] * mm_per_px, rel=0.03
+    )
