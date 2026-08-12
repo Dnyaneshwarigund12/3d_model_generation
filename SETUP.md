@@ -28,15 +28,49 @@ better, ~10 GB for shape), with TRELLIS-2 left for later.
 ## Quick start on Colab
 
 Open `notebooks/colab_photo_to_3d.ipynb` in Colab, set **Runtime > Change runtime type >
-T4 GPU**, and run the cells top to bottom. Steps 6 (Hunyuan3D) and 7 (UniDepth) are
-optional on a first pass.
+T4 GPU**, and run the steps in order. There are only three that matter:
 
-The notebook gets the code either by cloning your GitHub repo or by copying the folder
-from Google Drive - set `CODE_SOURCE` in step 3. Step 2 caches model weights on Drive so
-you download the multi-gigabyte checkpoints once rather than once per session.
+```
+step 3   !python tools/colab_setup.py     install everything, once
+step 4   Runtime > Restart session        then re-run step 2
+step 5   !python tools/doctor.py          verify before spending GPU time
+```
 
-The last cell prints a `gradio.live` URL that works for 72 hours, and only while the cell
-is running. Open it on your phone to upload photos straight from the camera.
+**Why it is shaped like this.** Colab ships numpy, Pillow, scipy, OpenCV and torch already
+compiled against each other. Each separate `pip install` is a separate resolution, free to
+move one of them to satisfy a new package's pin, and a partly applied downgrade leaves a
+package's Python files and its compiled extension on different versions. The error that
+follows names the wrong culprit — a broken numpy reports itself as "rembg is not installed" —
+so fixing them one at a time never converges.
+
+`tools/colab_setup.py` writes `constraints-colab.txt` from the versions the machine already
+has, then installs the pipeline and both generation backends in a **single pip transaction**
+bounded by that file. Anything that genuinely cannot live with the baseline fails at install
+time, by name. Then restart once, because a compiled extension cannot be reloaded in place.
+
+`tools/doctor.py` runs as a script, never imported into the kernel: a fresh process is the
+only place a version number reflects what is on disk. It checks each library, then runs the
+real pipeline on a synthetic scene of known size — a 300×150 px object beside a 150 px marker
+that is really 50 mm, which must come back as 100×50 mm. That one check covers marker
+detection, the millimetres-per-pixel maths, mesh scaling, the oriented bounding box and the
+GLB export. It exits non-zero if anything required fails, and reports the GPU and the two
+backends as optional.
+
+Step 2 gets the code (clone your GitHub repo, or copy the folder from Drive — set
+`CODE_SOURCE`) and caches both model weights and the pip cache on Drive, so the
+multi-gigabyte checkpoints download once rather than once per session and later installs are
+much faster. Re-run step 2 after the restart: it restores the cache paths and the working
+directory.
+
+Step 7 prints a `gradio.live` URL that works for 72 hours, and only while the cell is
+running. Open it on your phone to upload photos straight from the camera.
+
+**Neither TripoSR nor Hunyuan3D needs anything compiled.** TripoSR imports `torchmcubes`, a
+CUDA extension that frequently fails to build; the adapter substitutes scikit-image's
+marching cubes when it is missing, which is slower and can order the axes differently. That
+rotates the model in the viewer and cannot change the measurements, because those come from
+the oriented bounding box, which is rotation invariant. Hunyuan3D's two extensions belong to
+its texture pass, which wants ~21 GB of VRAM and stays off on a T4.
 
 ## Local install (development and tests only)
 
@@ -53,9 +87,12 @@ python -m pytest tests -q
 python -m app.ui --generator silhouette
 ```
 
-59 tests, no GPU and no model weights required. They pass on both OpenCV 4.6 with
+68 tests, no GPU and no model weights required. They pass on both OpenCV 4.6 with
 numpy 1.26 and OpenCV 5.0 with numpy 2.4; ArUco's API changed at OpenCV 4.7 and
 `app/scale.py` handles both spellings.
+
+`python tools/doctor.py` works locally too, and is the fastest way to see whether an
+environment is sound: it reports the GPU and both generation backends as optional.
 
 ---
 
@@ -186,6 +223,8 @@ app/
   ui.py              the Gradio page
   generators/        silhouette (CPU), triposr, hunyuan3d
 tools/
+  colab_setup.py     freeze the baseline, then install everything in one transaction
+  doctor.py          verify libraries and the whole pipeline, in a fresh process
   make_marker.py     printable marker at an exact size
   validate.py        measured error against tape-measured truth
 notebooks/
@@ -198,39 +237,43 @@ mesh: scale is solved independently and applied afterwards.
 
 ## When Colab breaks
 
-**An ImportError comes from inside numpy or Pillow itself** — say `cannot import name
-'_center' from 'numpy._core.umath'`, or `cannot import name '_Ink' from 'PIL._typing'`. A
-model install in step 5, 6 or 7 satisfied a pin of its own by downgrading the package, and
-the downgrade was applied only partly, leaving Python files and compiled extensions on
-different versions. Colab's scipy, opencv, torch and rembg are all built against the numpy
-and Pillow it ships with, so they break together; `rembg` usually reports it first, because
-it imports scipy. Run step 8b, then restart the runtime — the restart is not optional,
-because the kernel is holding the broken copy.
+First response to almost anything: **`!python tools/doctor.py`**. It names the layer that
+failed instead of leaving you to infer it from a traceback that blames the wrong package.
 
-Two traps make this look unfixable:
+**An ImportError from inside numpy or Pillow itself** — `cannot import name '_center' from
+'numpy._core.umath'`, or `cannot import name '_Ink' from 'PIL._typing'`. Something installed
+outside step 3 moved the package, and the move was applied only partly, so its Python files
+and its compiled extension disagree. Colab's scipy, OpenCV, torch and rembg are all built
+against the numpy and Pillow the image ships with, so they break together; `rembg` usually
+reports it first, because it imports scipy.
+
+Use the repair cell at the end of the notebook, then restart the runtime. Two traps make this
+look unfixable if you do it by hand:
 
 - **Reinstalling over the tree may not fix it.** pip records the new version and can leave
-  stale files behind, so the metadata reports one version while the files are another. Step
-  8b deletes the package directory, its `*.dist-info` and its `.libs` before reinstalling.
-- **No version string in the running kernel can be trusted.** `__version__` reflects what
-  was imported first, and `importlib.metadata.version` reads metadata that may not match the
-  files. Step 8b imports the package in a separate process instead, which is the only
-  reading that reflects the disk.
+  stale files behind, so the metadata reports one version while the files are another. The
+  repair cell deletes the package directory, its `*.dist-info` and its `.libs` first.
+- **No version string in the running kernel can be trusted.** `__version__` reflects what was
+  imported first, and `importlib.metadata.version` reads metadata that may disagree with the
+  files. Check by importing in a separate process, which is what the repair cell and the
+  doctor both do.
 
-The install cells carry `numpy>=2.3,<3` and `pillow>=12.1,<13` floors to stop the downgrade
-happening, and print both versions afterwards so you can see which step moved them.
+Installing through `tools/colab_setup.py` prevents this: the constraints file makes the
+downgrade impossible in the first place, and the script reports anything that moved anyway.
 
-**Hunyuan3D: `No module named 'pymeshlab'`.** `hy3dshape` imports it and the repo does not
-declare it in a way the notebook's install picks up. Step 6 installs it explicitly.
+**`No module named 'pymeshlab'`** when loading Hunyuan3D. `hy3dshape` imports it and the repo
+does not declare it anywhere pip will find. `colab_setup.py` installs it.
 
-**Hunyuan3D: `compile_mesh_painter.sh: line 1: python3-config: command not found`.** That
-script builds a *texture* pipeline extension, and the texture pass wants ~21 GB of VRAM, so
-it stays off on a T4. Step 6 skips both texture extensions unless you set `TEXTURE = True`,
-in which case it installs `python3-dev` first to provide `python3-config`. Shape generation —
-the mesh you measure — needs neither.
+**`compile_mesh_painter.sh: python3-config: command not found`.** Only reachable if you build
+Hunyuan3D's texture extensions by hand. The texture pass wants ~21 GB of VRAM and stays off
+on a T4, so nothing in the normal flow compiles them, and shape generation needs neither.
 
-**UniDepth fails to import.** It is only needed for the `estimate` scale source, which is a
-wide-error-bar guess anyway. Skip step 7 and use a marker or a card.
+**`torchmcubes` will not build.** Ignore it. The TripoSR adapter falls back to scikit-image's
+marching cubes, and `tools/doctor.py` reports which implementation is in use. Pass
+`--with-torchmcubes` to `colab_setup.py` if you want the faster CUDA one.
+
+**UniDepth fails to import.** It only powers the `estimate` scale source, which is a
+wide-error-bar guess. Use a marker or a card instead; it is several times more accurate.
 
 ## Known limitations
 

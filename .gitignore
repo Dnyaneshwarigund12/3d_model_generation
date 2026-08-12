@@ -13,3 +13,6 @@ third_party/
 
 # Printable marker assets are generated on demand
 assets/markers/
+
+# Written by tools/colab_setup.py from whatever the machine already has installed
+constraints-colab.txt

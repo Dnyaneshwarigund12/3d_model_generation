@@ -11,6 +11,7 @@ TripoSR ships as a repo rather than a pip package, so the notebook clones it int
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,60 @@ from ..imaging import composite_on_gray
 _REPO_URL = "https://github.com/VAST-AI-Research/TripoSR"
 
 
+def _ensure_marching_cubes() -> str:
+    """Make `import torchmcubes` succeed, with a CPU implementation if it cannot.
+
+    TripoSR imports torchmcubes, a CUDA extension that compiles from source and
+    routinely fails to build on Colab. scikit-image's marching cubes produces the
+    same surface, more slowly. Its axis order may differ, which rotates the model
+    in the viewer but cannot change the measurements: those come from the oriented
+    bounding box, which is invariant under rotation.
+
+    Returns the name of whichever implementation is in play, for the doctor script.
+    """
+    try:
+        import torchmcubes  # noqa: F401
+
+        return "torchmcubes (CUDA)"
+    except Exception:
+        pass
+
+    try:
+        from skimage.measure import marching_cubes as skimage_marching_cubes
+    except Exception as exc:
+        raise GeneratorError(
+            "TripoSR needs marching cubes, and neither torchmcubes nor "
+            "scikit-image is importable. Install scikit-image, or use the "
+            "hunyuan3d backend, which does not need either."
+        ) from exc
+
+    def marching_cubes(volume, isolevel: float = 0.0):
+        import torch
+
+        array = (
+            volume.detach().cpu().numpy()
+            if hasattr(volume, "detach")
+            else np.asarray(volume)
+        )
+        vertices, faces, _, _ = skimage_marching_cubes(array, level=float(isolevel))
+        return (
+            torch.from_numpy(np.ascontiguousarray(vertices, dtype=np.float32)),
+            torch.from_numpy(np.ascontiguousarray(faces, dtype=np.int64)),
+        )
+
+    def grid_interp(*_args, **_kwargs):
+        raise GeneratorError(
+            "torchmcubes.grid_interp has no CPU stand-in. Build torchmcubes, or "
+            "use the hunyuan3d backend."
+        )
+
+    module = types.ModuleType("torchmcubes")
+    module.marching_cubes = marching_cubes
+    module.grid_interp = grid_interp
+    sys.modules["torchmcubes"] = module
+    return "scikit-image (CPU fallback)"
+
+
 class TripoSRGenerator:
     name = "triposr"
     is_placeholder = False
@@ -30,6 +85,7 @@ class TripoSRGenerator:
         self.settings = settings or Settings()
         self._model = None
         self._device: str | None = None
+        self._marching_cubes: str | None = None
 
     def _ensure_repo_on_path(self) -> Path:
         repo = self.settings.triposr_repo
@@ -49,12 +105,13 @@ class TripoSRGenerator:
         import torch
 
         self._ensure_repo_on_path()
+        self._marching_cubes = _ensure_marching_cubes()
         try:
             from tsr.system import TSR
         except ImportError as exc:
             raise GeneratorError(
-                "Could not import TripoSR. Its extra dependencies (torchmcubes, "
-                "omegaconf, einops) are installed by the Colab notebook."
+                "Could not import TripoSR. Its extra dependencies (omegaconf, "
+                "einops, jaxtyping) are installed by tools/colab_setup.py."
             ) from exc
 
         device = self.settings.resolve_device()
@@ -99,6 +156,13 @@ class TripoSRGenerator:
         if not meshes:
             raise GeneratorError("TripoSR returned no mesh for this image.")
         mesh = meshes[0]
+        if self._marching_cubes and "fallback" in self._marching_cubes:
+            # The fallback's axis order can invert face winding, which shows up as
+            # an inside-out model in the viewer. Measurements are unaffected.
+            try:
+                mesh.fix_normals()
+            except Exception:
+                pass
         if mesh.faces is None or len(mesh.faces) == 0:
             raise GeneratorError(
                 "TripoSR produced an empty mesh. This usually means the subject "

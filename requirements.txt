@@ -1,6 +1,10 @@
-# Core pipeline dependencies (CPU-safe, no CUDA needed).
-# The GPU-side model repos are installed separately - see requirements-colab.txt
-# and notebooks/colab_photo_to_3d.ipynb.
+# Core pipeline dependencies (CPU-safe, no CUDA needed). Enough to run the whole
+# measurement pipeline, the test suite and the UI with the `silhouette` backend.
+#
+# On Colab, do NOT install these by hand: run tools/colab_setup.py, which pins the
+# versions that image already has before installing anything, so no resolution can
+# move numpy or torch underneath the rest of the stack. It handles the generation
+# backends too.
 
 numpy>=1.24,<3
 opencv-python>=4.8
