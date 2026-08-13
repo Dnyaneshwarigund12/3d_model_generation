@@ -61,6 +61,45 @@ class Hunyuan3DGenerator:
             sys.path.insert(0, str(repo))
         return repo
 
+    def _ensure_shape_weights(self) -> Path:
+        """Download the shape subfolder into Hunyuan's hy3dgen cache if missing.
+
+        Hunyuan's loader looks under ``~/.cache/hy3dgen/<repo>/<subfolder>/`` for
+        ``model.fp16.ckpt`` (~7 GB). Calling snapshot_download ourselves gives a
+        clearer failure than a bare FileNotFoundError when the download is
+        interrupted.
+        """
+        import os
+
+        from huggingface_hub import snapshot_download
+
+        base = Path(
+            os.path.expanduser(
+                os.environ.get("HY3DGEN_MODELS", "~/.cache/hy3dgen")
+            )
+        )
+        repo_dir = base / self.settings.hunyuan_model
+        sub = self.settings.hunyuan_shape_subfolder
+        ckpt = repo_dir / sub / "model.fp16.ckpt"
+        if ckpt.is_file() and ckpt.stat().st_size > 1_000_000_000:
+            return ckpt
+
+        print(
+            f"Downloading Hunyuan3D shape weights into {repo_dir / sub} "
+            "(~7 GB, first time only) ..."
+        )
+        snapshot_download(
+            repo_id=self.settings.hunyuan_model,
+            allow_patterns=[f"{sub}/*"],
+            local_dir=str(repo_dir),
+        )
+        if not ckpt.is_file():
+            raise GeneratorError(
+                f"Download finished but {ckpt} is still missing. "
+                "Check Hugging Face access / disk space, or switch to `triposr`."
+            )
+        return ckpt
+
     def _load_shape(self):
         if self._shape is not None:
             return self._shape
@@ -75,11 +114,44 @@ class Hunyuan3DGenerator:
                 "install cell."
             ) from exc
 
-        pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            self.settings.hunyuan_model,
-            subfolder=self.settings.hunyuan_shape_subfolder,
-            use_safetensors=True,
-        )
+        try:
+            self._ensure_shape_weights()
+        except GeneratorError:
+            raise
+        except Exception as exc:
+            raise GeneratorError(
+                f"Could not download Hunyuan3D weights ({type(exc).__name__}: {exc}). "
+                "Switch to `triposr`, or set HF_TOKEN if Hugging Face rate-limited you."
+            ) from exc
+
+        # Hugging Face ships model.fp16.ckpt for Hunyuan3D-2.1 (not .safetensors).
+        # Passing use_safetensors=True makes smart_load_model look for
+        # model.fp16.safetensors and raise FileNotFoundError even after a full download.
+        try:
+            pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+                self.settings.hunyuan_model,
+                subfolder=self.settings.hunyuan_shape_subfolder,
+                use_safetensors=False,
+                variant="fp16",
+            )
+        except FileNotFoundError as exc:
+            raise GeneratorError(
+                "Hunyuan3D could not find its shape weights.\n"
+                "\n"
+                "Expected file (after download):\n"
+                f"  ~/.cache/hy3dgen/{self.settings.hunyuan_model}/"
+                f"{self.settings.hunyuan_shape_subfolder}/model.fp16.ckpt\n"
+                "\n"
+                "Or switch the generator to `triposr` for now.\n"
+                "\n"
+                f"Underlying: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise GeneratorError(
+                f"Hunyuan3D failed to load ({type(exc).__name__}: {exc}). "
+                "Switch the generator to `triposr` to continue, or download the "
+                "shape weights (see SETUP.md)."
+            ) from exc
         if self.settings.low_vram:
             # Keeps one component on the GPU at a time. Slower, but the
             # difference between running and an out-of-memory crash on a T4.
