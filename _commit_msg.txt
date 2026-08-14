@@ -1,0 +1,6 @@
+Wire Hunyuan cache into Colab and document the real .ckpt download
+
+Session setup now sets HY3DGEN_MODELS on Drive so Hunyuan weights persist.
+Notebook step 6b downloads model.fp16.ckpt via tools/download_hunyuan.py and
+verifies the file. The loader already uses use_safetensors=False (HF ships
+.ckpt, not .safetensors).
