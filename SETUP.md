@@ -295,12 +295,12 @@ on a T4, so nothing in the normal flow compiles them, and shape generation needs
 marching cubes, and `tools/doctor.py` reports which implementation is in use. Pass
 `--with-torchmcubes` to `colab_setup.py` if you want the faster CUDA one.
 
-**`FileNotFoundError: .../model.fp16.safetensors not found` for Hunyuan3D.** Two
-causes: (1) older builds of this project asked for `.safetensors`, but Hugging Face
-only ships `model.fp16.ckpt` (~7 GB) — pull the latest code; (2) the download was
-interrupted. Switch to `triposr` immediately to keep working. To use Hunyuan, leave
-Generate running once until the ~7 GB download finishes (or run `snapshot_download`
-for `tencent/Hunyuan3D-2.1` / `hunyuan3d-dit-v2-1/*` into `~/.cache/hy3dgen/...`).
+**`FileNotFoundError: .../model.fp16.safetensors not found` for Hunyuan3D.** Hugging Face
+only ships `model.fp16.ckpt` (~7 GB). This project loads `.ckpt` (not `.safetensors`).
+Pull latest code, run notebook **step 6b** (`python tools/download_hunyuan.py`), wait
+until it prints OK, then launch with `GENERATOR = "hunyuan3d"`. Step 2 sets
+`HY3DGEN_MODELS` on Drive so the 7 GB file is not re-downloaded every session.
+Until then, use `triposr`.
 
 **`RuntimeError: Error(s) in loading state_dict for TSR` / Missing `q_proj` /
 Unexpected `encoder.layer`.** TripoSR's weights were saved under transformers 4.35

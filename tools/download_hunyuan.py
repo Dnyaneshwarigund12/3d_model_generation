@@ -1,8 +1,9 @@
 """Download Hunyuan3D-2.1 shape weights into the cache Hunyuan expects.
 
 Hugging Face ships ``model.fp16.ckpt`` (~7 GB) under
-``tencent/Hunyuan3D-2.1/hunyuan3d-dit-v2-1/``. Hunyuan's loader reads from
-``~/.cache/hy3dgen/tencent/Hunyuan3D-2.1/...`` (or ``HY3DGEN_MODELS``).
+``tencent/Hunyuan3D-2.1/hunyuan3d-dit-v2-1/``. There is no
+``model.fp16.safetensors`` for this model. Hunyuan's loader reads from
+``HY3DGEN_MODELS`` (default ``~/.cache/hy3dgen``).
 
     python tools/download_hunyuan.py
 """
@@ -17,37 +18,56 @@ from huggingface_hub import snapshot_download
 
 REPO = "tencent/Hunyuan3D-2.1"
 SUB = "hunyuan3d-dit-v2-1"
+CKPT_NAME = "model.fp16.ckpt"
+MIN_BYTES = 1_000_000_000  # ~1 GB floor; real file is ~7 GB
 
 
 def main() -> int:
     base = Path(os.path.expanduser(os.environ.get("HY3DGEN_MODELS", "~/.cache/hy3dgen")))
     dest = base / REPO
-    ckpt = dest / SUB / "model.fp16.ckpt"
+    sub_dir = dest / SUB
+    ckpt = sub_dir / CKPT_NAME
+    wrong = sub_dir / "model.fp16.safetensors"
 
-    print(f"Target: {ckpt}")
-    if ckpt.is_file() and ckpt.stat().st_size > 1_000_000_000:
-        print(f"Already present ({ckpt.stat().st_size / 1e9:.1f} GB). Nothing to do.")
+    print(f"HY3DGEN_MODELS = {base}")
+    print(f"Target checkpoint = {ckpt}")
+
+    if ckpt.is_file() and ckpt.stat().st_size > MIN_BYTES:
+        print(f"Already present ({ckpt.stat().st_size / 1e9:.2f} GB). Nothing to do.")
         return 0
 
-    # Clear a broken partial that only has the wrong filename leftover.
-    wrong = dest / SUB / "model.fp16.safetensors"
     if wrong.exists() and not ckpt.exists():
-        print(f"Removing leftover wrong file: {wrong}")
+        print(f"Removing leftover wrong filename: {wrong}")
         wrong.unlink()
 
-    print("Downloading ~7 GB (first time). Leave this running...")
-    snapshot_download(repo_id=REPO, allow_patterns=[f"{SUB}/*"], local_dir=str(dest))
+    dest.mkdir(parents=True, exist_ok=True)
+    print("Downloading ~7 GB from Hugging Face (first time only). Leave this cell running...")
+    snapshot_download(
+        repo_id=REPO,
+        allow_patterns=[f"{SUB}/*"],
+        local_dir=str(dest),
+    )
 
     if not ckpt.is_file():
+        found = sorted(p.name for p in sub_dir.glob("*")) if sub_dir.is_dir() else []
         print(
-            f"ERROR: expected {ckpt} after download.\n"
-            "Check disk space and Hugging Face access. Optional: export HF_TOKEN=...",
+            f"ERROR: expected {CKPT_NAME} after download.\n"
+            f"Files in {sub_dir}: {found}\n"
+            "Check disk space / network. Optional: set HF_TOKEN for higher rate limits.",
             file=sys.stderr,
         )
         return 1
 
-    print(f"OK: {ckpt} ({ckpt.stat().st_size / 1e9:.1f} GB)")
-    print("Now launch the app and select generator = hunyuan3d.")
+    size = ckpt.stat().st_size
+    if size < MIN_BYTES:
+        print(
+            f"ERROR: {ckpt} is only {size} bytes — download looks incomplete. Delete it and re-run.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"OK: {ckpt} ({size / 1e9:.2f} GB)")
+    print("Next: in step 7 set GENERATOR = \"hunyuan3d\" and launch the app.")
     return 0
 
 
