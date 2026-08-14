@@ -191,6 +191,7 @@ def check_unidepth():
 
 def check_hunyuan3d():
     from app.config import Settings
+    from app.generators.hunyuan3d import resolve_hy3dgen_models_dir, shape_checkpoint_path
 
     repo = Settings().hunyuan_repo
     if not (repo / "hy3dshape").is_dir():
@@ -202,7 +203,17 @@ def check_hunyuan3d():
     sys.path.insert(0, str(repo))
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline  # noqa: F401
 
-    return "shape pipeline imports cleanly"
+    cache = resolve_hy3dgen_models_dir()
+    ckpt = shape_checkpoint_path()
+    if ckpt.is_file() and ckpt.stat().st_size > 1_000_000_000:
+        return (
+            f"shape pipeline imports; ckpt ready "
+            f"({ckpt.stat().st_size / 1e9:.2f} GB under {cache})"
+        )
+    return (
+        f"shape pipeline imports; ckpt missing at {ckpt} "
+        "(run notebook step 6b before GENERATOR='hunyuan3d')"
+    )
 
 
 def main() -> int:

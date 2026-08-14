@@ -295,11 +295,12 @@ on a T4, so nothing in the normal flow compiles them, and shape generation needs
 marching cubes, and `tools/doctor.py` reports which implementation is in use. Pass
 `--with-torchmcubes` to `colab_setup.py` if you want the faster CUDA one.
 
-**`FileNotFoundError: .../model.fp16.safetensors not found` for Hunyuan3D.** Hugging Face
-only ships `model.fp16.ckpt` (~7 GB). This project loads `.ckpt` (not `.safetensors`).
-Pull latest code, run notebook **step 6b** (`python tools/download_hunyuan.py`), wait
-until it prints OK, then launch with `GENERATOR = "hunyuan3d"`. Step 2 sets
-`HY3DGEN_MODELS` on Drive so the 7 GB file is not re-downloaded every session.
+**`FileNotFoundError: .../model.fp16.safetensors` or missing Hunyuan weights.** Hugging Face
+only ships `model.fp16.ckpt` (~7 GB); this project loads that file directly and never asks
+for `.safetensors`. After every Colab restart: re-run **step 2** (restores
+`HY3DGEN_MODELS` on Drive), then **step 6b** until it prints OK, then step 7 with
+`GENERATOR = "hunyuan3d"`. Launch refuses to start Hunyuan if the checkpoint is missing.
+Use `triposr` until 6b finishes.
 Until then, use `triposr`.
 
 **`RuntimeError: Error(s) in loading state_dict for TSR` / Missing `q_proj` /

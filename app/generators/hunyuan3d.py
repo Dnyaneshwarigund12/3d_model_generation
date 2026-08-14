@@ -24,6 +24,7 @@ only file to touch.
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -34,6 +35,41 @@ from ..config import Settings
 from ..errors import GeneratorError
 
 _REPO_URL = "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"
+_CKPT_NAME = "model.fp16.ckpt"
+_MIN_CKPT_BYTES = 1_000_000_000
+_COLAB_DRIVE_HY3DGEN = Path("/content/drive/MyDrive/p3d-cache/hy3dgen")
+
+
+def resolve_hy3dgen_models_dir() -> Path:
+    """Directory Hunyuan reads via HY3DGEN_MODELS.
+
+    After a Colab runtime restart the env is cleared. If Drive is mounted we
+    re-point at the persistent cache so a finished step-6b download is found.
+    """
+    raw = os.environ.get("HY3DGEN_MODELS")
+    if raw:
+        path = Path(os.path.expanduser(raw))
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    if _COLAB_DRIVE_HY3DGEN.parent.is_dir():
+        _COLAB_DRIVE_HY3DGEN.mkdir(parents=True, exist_ok=True)
+        os.environ["HY3DGEN_MODELS"] = str(_COLAB_DRIVE_HY3DGEN)
+        return _COLAB_DRIVE_HY3DGEN
+    default = Path(os.path.expanduser("~/.cache/hy3dgen"))
+    default.mkdir(parents=True, exist_ok=True)
+    os.environ["HY3DGEN_MODELS"] = str(default)
+    return default
+
+
+def shape_checkpoint_path(settings: Settings | None = None) -> Path:
+    settings = settings or Settings()
+    base = resolve_hy3dgen_models_dir()
+    return (
+        base
+        / settings.hunyuan_model
+        / settings.hunyuan_shape_subfolder
+        / _CKPT_NAME
+    )
 
 
 class Hunyuan3DGenerator:
@@ -62,30 +98,21 @@ class Hunyuan3DGenerator:
         return repo
 
     def _ensure_shape_weights(self) -> Path:
-        """Download the shape subfolder into Hunyuan's hy3dgen cache if missing.
+        """Download ``model.fp16.ckpt`` (~7 GB) into HY3DGEN_MODELS if missing.
 
-        Hunyuan's loader looks under ``~/.cache/hy3dgen/<repo>/<subfolder>/`` for
-        ``model.fp16.ckpt`` (~7 GB). Calling snapshot_download ourselves gives a
-        clearer failure than a bare FileNotFoundError when the download is
-        interrupted.
+        Hugging Face does not ship ``model.fp16.safetensors`` for Hunyuan3D-2.1.
+        We never ask for that name.
         """
-        import os
-
         from huggingface_hub import snapshot_download
 
-        base = Path(
-            os.path.expanduser(
-                os.environ.get("HY3DGEN_MODELS", "~/.cache/hy3dgen")
-            )
-        )
-        repo_dir = base / self.settings.hunyuan_model
+        ckpt = shape_checkpoint_path(self.settings)
+        repo_dir = ckpt.parent.parent
         sub = self.settings.hunyuan_shape_subfolder
-        ckpt = repo_dir / sub / "model.fp16.ckpt"
-        if ckpt.is_file() and ckpt.stat().st_size > 1_000_000_000:
+        if ckpt.is_file() and ckpt.stat().st_size > _MIN_CKPT_BYTES:
             return ckpt
 
         print(
-            f"Downloading Hunyuan3D shape weights into {repo_dir / sub} "
+            f"Downloading Hunyuan3D shape weights into {ckpt.parent} "
             "(~7 GB, first time only) ..."
         )
         snapshot_download(
@@ -94,9 +121,16 @@ class Hunyuan3DGenerator:
             local_dir=str(repo_dir),
         )
         if not ckpt.is_file():
+            found = sorted(p.name for p in ckpt.parent.glob("*")) if ckpt.parent.is_dir() else []
             raise GeneratorError(
-                f"Download finished but {ckpt} is still missing. "
+                f"Download finished but {ckpt} is still missing.\n"
+                f"Files present: {found}\n"
                 "Check Hugging Face access / disk space, or switch to `triposr`."
+            )
+        if ckpt.stat().st_size < _MIN_CKPT_BYTES:
+            raise GeneratorError(
+                f"{ckpt} looks incomplete ({ckpt.stat().st_size} bytes). "
+                "Delete it and re-run notebook step 6b."
             )
         return ckpt
 
@@ -106,6 +140,7 @@ class Hunyuan3DGenerator:
 
         self._ensure_repo_on_path()
         try:
+            import torch
             from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
         except ImportError as exc:
             raise GeneratorError(
@@ -115,7 +150,7 @@ class Hunyuan3DGenerator:
             ) from exc
 
         try:
-            self._ensure_shape_weights()
+            ckpt = self._ensure_shape_weights()
         except GeneratorError:
             raise
         except Exception as exc:
@@ -124,24 +159,35 @@ class Hunyuan3DGenerator:
                 "Switch to `triposr`, or set HF_TOKEN if Hugging Face rate-limited you."
             ) from exc
 
-        # Hugging Face ships model.fp16.ckpt for Hunyuan3D-2.1 (not .safetensors).
-        # Passing use_safetensors=True makes smart_load_model look for
-        # model.fp16.safetensors and raise FileNotFoundError even after a full download.
+        config_path = ckpt.parent / "config.yaml"
+        if not config_path.is_file():
+            raise GeneratorError(
+                f"Hunyuan3D config missing next to the checkpoint:\n  {config_path}\n"
+                "Re-run notebook step 6b (`python tools/download_hunyuan.py`)."
+            )
+
+        # Load the local .ckpt directly. Do NOT use from_pretrained here:
+        # older Hunyuan defaults ask for model.fp16.safetensors, which HF never
+        # ships for 2.1, and smart_load_model also ignores Drive if HY3DGEN_MODELS
+        # was cleared by a Colab restart.
         try:
-            pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-                self.settings.hunyuan_model,
-                subfolder=self.settings.hunyuan_shape_subfolder,
+            pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
+                str(ckpt),
+                str(config_path),
+                device=self.settings.resolve_device(),
+                dtype=torch.float16,
                 use_safetensors=False,
-                variant="fp16",
             )
         except FileNotFoundError as exc:
             raise GeneratorError(
                 "Hunyuan3D could not find its shape weights.\n"
                 "\n"
-                "Expected file (after download):\n"
-                f"  ~/.cache/hy3dgen/{self.settings.hunyuan_model}/"
-                f"{self.settings.hunyuan_shape_subfolder}/model.fp16.ckpt\n"
+                f"Expected checkpoint:\n  {ckpt}\n"
+                f"Exists: {ckpt.is_file()}  "
+                f"HY3DGEN_MODELS={os.environ.get('HY3DGEN_MODELS')}\n"
                 "\n"
+                "Fix: re-run notebook step 2, then step 6b, wait for OK, then "
+                "launch with GENERATOR = \"hunyuan3d\".\n"
                 "Or switch the generator to `triposr` for now.\n"
                 "\n"
                 f"Underlying: {exc}"
@@ -149,8 +195,8 @@ class Hunyuan3DGenerator:
         except Exception as exc:
             raise GeneratorError(
                 f"Hunyuan3D failed to load ({type(exc).__name__}: {exc}). "
-                "Switch the generator to `triposr` to continue, or download the "
-                "shape weights (see SETUP.md)."
+                "Switch the generator to `triposr` to continue, or re-run "
+                "notebook step 6b."
             ) from exc
         if self.settings.low_vram:
             # Keeps one component on the GPU at a time. Slower, but the

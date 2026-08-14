@@ -189,6 +189,24 @@ def launch(
     port = port or free_port()
     on_colab = in_colab()
 
+    # Colab restarts wipe env vars. Re-attach the Drive weight cache before any
+    # generator looks under ~/.cache/hy3dgen and misses a finished download.
+    from app.generators.hunyuan3d import resolve_hy3dgen_models_dir, shape_checkpoint_path
+
+    hy_cache = resolve_hy3dgen_models_dir()
+    print(f"HY3DGEN_MODELS = {hy_cache}")
+    if generator == "hunyuan3d":
+        ckpt = shape_checkpoint_path(settings)
+        if not ckpt.is_file() or ckpt.stat().st_size < 1_000_000_000:
+            raise SystemExit(
+                "Hunyuan3D checkpoint not ready.\n"
+                f"  expected: {ckpt}\n"
+                "Re-run notebook step 2, then step 6b (`python tools/download_hunyuan.py`),\n"
+                "wait until it prints OK, then launch again.\n"
+                "Or set GENERATOR = \"triposr\" to continue without Hunyuan."
+            )
+        print(f"Hunyuan checkpoint OK ({ckpt.stat().st_size / 1e9:.2f} GB)")
+
     if on_colab:
         try:
             print("Share tunnel binary:", ensure_frpc())

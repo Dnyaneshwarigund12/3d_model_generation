@@ -120,9 +120,16 @@ def test_the_tools_the_notebook_runs_exist(notebook):
 
 def test_step_7_uses_the_colab_safe_launcher(notebook):
     """The old build_ui().launch() path embeds in Colab's broken Gradio iframe."""
-    source = "".join(notebook["cells"][13]["source"])
-    assert "from tools.colab_launch import launch" in source
+    launch_cells = [
+        "".join(cell["source"])
+        for cell in notebook["cells"]
+        if cell["cell_type"] == "code"
+        and "from tools.colab_launch import launch" in "".join(cell["source"])
+    ]
+    assert launch_cells, "notebook is missing the Colab-safe launch cell"
+    source = launch_cells[0]
     assert "launch(generator=" in source
+    assert "HY3DGEN_MODELS" in source
     assert "build_ui(" not in source
     assert "demo.launch" not in source
     assert "queue().launch" not in source
