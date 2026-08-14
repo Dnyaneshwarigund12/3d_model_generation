@@ -170,11 +170,26 @@ class Hunyuan3DGenerator:
         # older Hunyuan defaults ask for model.fp16.safetensors, which HF never
         # ships for 2.1, and smart_load_model also ignores Drive if HY3DGEN_MODELS
         # was cleared by a Colab restart.
+        #
+        # On Colab T4, load onto CPU first then enable offload. Loading the ~7 GB
+        # fp16 weights straight onto CUDA spikes VRAM and kills the runtime; Gradio
+        # then only shows "Connection to the server was lost".
+        import gc
+
+        gc.collect()
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+        load_device = "cpu" if self.settings.low_vram else self.settings.resolve_device()
+        print(f"Loading Hunyuan3D shape weights from {ckpt} onto {load_device} ...")
         try:
             pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
                 str(ckpt),
                 str(config_path),
-                device=self.settings.resolve_device(),
+                device=load_device,
                 dtype=torch.float16,
                 use_safetensors=False,
             )
@@ -192,6 +207,19 @@ class Hunyuan3DGenerator:
                 "\n"
                 f"Underlying: {exc}"
             ) from exc
+        except RuntimeError as exc:
+            if "out of memory" in str(exc).lower():
+                raise GeneratorError(
+                    "GPU/RAM ran out while loading Hunyuan3D. "
+                    "Runtime > Disconnect and delete runtime, then re-run steps "
+                    "2 → 5 → 7 with GENERATOR = \"triposr\". "
+                    "Hunyuan needs a fresh T4 session with nothing else loaded."
+                ) from exc
+            raise GeneratorError(
+                f"Hunyuan3D failed to load ({type(exc).__name__}: {exc}). "
+                "Switch the generator to `triposr` to continue, or re-run "
+                "notebook step 6b."
+            ) from exc
         except Exception as exc:
             raise GeneratorError(
                 f"Hunyuan3D failed to load ({type(exc).__name__}: {exc}). "
@@ -205,12 +233,14 @@ class Hunyuan3DGenerator:
                 if hasattr(pipeline, method):
                     try:
                         getattr(pipeline, method)()
+                        print(f"Hunyuan3D low-VRAM: {method} enabled")
                         break
                     except Exception:
                         continue
         elif hasattr(pipeline, "to"):
             pipeline.to(self.settings.resolve_device())
 
+        print("Hunyuan3D shape pipeline ready")
         self._shape = pipeline
         return pipeline
 

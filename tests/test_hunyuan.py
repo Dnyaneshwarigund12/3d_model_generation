@@ -73,6 +73,7 @@ def test_load_shape_calls_from_single_file_with_ckpt(tmp_path, monkeypatch):
     assert len(calls) == 1
     assert calls[0]["ckpt"] == str(ckpt)
     assert calls[0]["use_safetensors"] is False
+    assert calls[0]["device"] == "cpu"  # low_vram loads on CPU then offloads
     assert calls[0]["ckpt"].endswith(".ckpt")
 
 
